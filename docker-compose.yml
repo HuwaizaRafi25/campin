@@ -1,0 +1,39 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: campin-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: campinrootpassword
+      MYSQL_DATABASE: campin
+      MYSQL_USER: campinuser
+      MYSQL_PASSWORD: campinpassword
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  campin:
+    build: .
+    container_name: campin-app
+    stdin_open: true
+    tty: true
+    ports:
+      - "8080:8080"
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/campin?allowPublicKeyRetrieval=true&useSSL=false
+      DB_USER: campinuser
+      DB_PASS: campinpassword
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+
