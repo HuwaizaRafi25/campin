@@ -28,6 +28,7 @@ services:
       DB_URL: jdbc:mysql://mysql:3306/campin?allowPublicKeyRetrieval=true&useSSL=false
       DB_USER: campinuser
       DB_PASS: campinpassword
+      MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-}
     volumes:
       - ./data:/app/data
     depends_on:
