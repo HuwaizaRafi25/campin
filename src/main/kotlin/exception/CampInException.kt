@@ -17,6 +17,8 @@ class InputTidakValidException(pesan: String) :
 class AksesDitolakException(pesan: String) :
     CampInException("Akses ditolak: $pesan")
 
+class AutentikasiGagalException(pesan: String = "ID/Email atau password salah.") :
+    CampInException(pesan)
+
 class PembayaranGagalException(pesan: String) :
     CampInException("Kegagalan pembayaran: $pesan")
-
