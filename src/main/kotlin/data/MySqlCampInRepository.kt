@@ -22,12 +22,21 @@ class MySqlCampInRepository(
         } catch (e: Exception) {
             modeDatabaseAktif = "SQLite Local (Fallback MySQL Offline)"
             File("data").mkdirs()
-            DriverManager.getConnection("jdbc:sqlite:data/campin.db")
+            DriverManager.getConnection("jdbc:sqlite:data/campin_v2.db")
         }
     }
 
     override fun initSchema() {
         conn.createStatement().use { st ->
+            // Auto-upgrade jika mendeteksi tabel versi lama tanpa kolom password_hash
+            try {
+                st.executeQuery("SELECT password_hash FROM pengguna LIMIT 1").close()
+            } catch (_: Exception) {
+                runCatching { st.execute("DROP TABLE IF EXISTS transaksi_sewa") }
+                runCatching { st.execute("DROP TABLE IF EXISTS alat_camping") }
+                runCatching { st.execute("DROP TABLE IF EXISTS pengguna") }
+            }
+
             st.execute(
                 """
                 CREATE TABLE IF NOT EXISTS pengguna (
@@ -37,7 +46,8 @@ class MySqlCampInRepository(
                     email VARCHAR(100) NOT NULL,
                     atribut_ekstra VARCHAR(100) NOT NULL,
                     terverifikasi INT DEFAULT 0,
-                    saldo INT DEFAULT 0
+                    saldo INT DEFAULT 0,
+                    password_hash VARCHAR(128) DEFAULT ''
                 )
                 """.trimIndent()
             )
@@ -64,10 +74,12 @@ class MySqlCampInRepository(
                     durasi_hari INT NOT NULL,
                     total_sewa INT NOT NULL,
                     total_deposit INT NOT NULL,
-                    kode_pembayaran VARCHAR(120) NOT NULL,
+                    kode_pembayaran VARCHAR(160) NOT NULL,
                     tanggal_pinjam VARCHAR(20) NOT NULL,
                     tanggal_kembali VARCHAR(20),
-                    denda INT DEFAULT 0
+                    denda INT DEFAULT 0,
+                    deposit_dikembalikan INT DEFAULT 0,
+                    status_sewa VARCHAR(32) DEFAULT 'AKTIF_DISEWA'
                 )
                 """.trimIndent()
             )
@@ -75,7 +87,7 @@ class MySqlCampInRepository(
     }
 
     override fun simpanPengguna(pengguna: Pengguna) {
-        val sql = "INSERT INTO pengguna (id, peran, nama, email, atribut_ekstra, terverifikasi, saldo) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        val sql = "INSERT INTO pengguna (id, peran, nama, email, atribut_ekstra, terverifikasi, saldo, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         conn.prepareStatement(sql).use { ps ->
             ps.setString(1, pengguna.id)
             ps.setString(2, pengguna.peran())
@@ -85,7 +97,7 @@ class MySqlCampInRepository(
                 is Penyewa -> {
                     ps.setString(5, pengguna.noTelepon)
                     ps.setInt(6, 1)
-                    ps.setInt(7, 0)
+                    ps.setInt(7, pengguna.saldoRefundDeposit)
                 }
                 is Penyedia -> {
                     ps.setString(5, pengguna.namaToko)
@@ -98,6 +110,7 @@ class MySqlCampInRepository(
                     ps.setInt(7, 0)
                 }
             }
+            ps.setString(8, pengguna.passwordHash)
             ps.executeUpdate()
         }
     }
@@ -107,6 +120,14 @@ class MySqlCampInRepository(
             ps.setInt(1, if (terverifikasi) 1 else 0)
             ps.setInt(2, saldo)
             ps.setString(3, id)
+            ps.executeUpdate()
+        }
+    }
+
+    override fun updateSaldoRefundPenyewa(id: String, saldoRefund: Int) {
+        conn.prepareStatement("UPDATE pengguna SET saldo = ? WHERE id = ?").use { ps ->
+            ps.setInt(1, saldoRefund)
+            ps.setString(2, id)
             ps.executeUpdate()
         }
     }
@@ -123,11 +144,12 @@ class MySqlCampInRepository(
                 val ekstra = rs.getString("atribut_ekstra")
                 val verif = rs.getInt("terverifikasi") == 1
                 val saldo = rs.getInt("saldo")
+                val passHash = rs.getString("password_hash").orEmpty()
 
                 val user = when (peran) {
-                    "PENYEWA" -> Penyewa(id, nama, email, ekstra)
-                    "PENYEDIA" -> Penyedia(id, nama, email, ekstra, verif, saldo)
-                    else -> AdminPlatform(id, nama, email, ekstra)
+                    "PENYEWA" -> Penyewa(id, nama, email, ekstra, passHash, saldo)
+                    "PENYEDIA" -> Penyedia(id, nama, email, ekstra, verif, saldo, passHash)
+                    else -> AdminPlatform(id, nama, email, ekstra, passHash)
                 }
                 list.add(user)
             }
@@ -196,7 +218,7 @@ class MySqlCampInRepository(
     }
 
     override fun simpanTransaksi(trx: TransaksiSewa) {
-        val sql = "INSERT INTO transaksi_sewa (id, alat_id, penyewa_id, durasi_hari, total_sewa, total_deposit, kode_pembayaran, tanggal_pinjam, tanggal_kembali, denda) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        val sql = "INSERT INTO transaksi_sewa (id, alat_id, penyewa_id, durasi_hari, total_sewa, total_deposit, kode_pembayaran, tanggal_pinjam, tanggal_kembali, denda, deposit_dikembalikan, status_sewa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         conn.prepareStatement(sql).use { ps ->
             ps.setString(1, trx.id)
             ps.setString(2, trx.alatId)
@@ -208,15 +230,26 @@ class MySqlCampInRepository(
             ps.setString(8, trx.tanggalPinjam.toString())
             ps.setString(9, trx.tanggalKembali?.toString())
             ps.setInt(10, trx.dendaTerlambat)
+            ps.setInt(11, trx.depositDikembalikan)
+            ps.setString(12, trx.status.name)
             ps.executeUpdate()
         }
     }
 
-    override fun updatePengembalianTransaksi(id: String, tanggalKembali: String, denda: Int) {
-        conn.prepareStatement("UPDATE transaksi_sewa SET tanggal_kembali = ?, denda = ? WHERE id = ?").use { ps ->
+    override fun updatePengembalianTransaksi(
+        id: String,
+        tanggalKembali: String,
+        denda: Int,
+        depositDikembalikan: Int,
+        status: String
+    ) {
+        val sql = "UPDATE transaksi_sewa SET tanggal_kembali = ?, denda = ?, deposit_dikembalikan = ?, status_sewa = ? WHERE id = ?"
+        conn.prepareStatement(sql).use { ps ->
             ps.setString(1, tanggalKembali)
             ps.setInt(2, denda)
-            ps.setString(3, id)
+            ps.setInt(3, depositDikembalikan)
+            ps.setString(4, status)
+            ps.setString(5, id)
             ps.executeUpdate()
         }
     }
@@ -227,6 +260,10 @@ class MySqlCampInRepository(
             val rs = st.executeQuery("SELECT * FROM transaksi_sewa")
             while (rs.next()) {
                 val tglKembaliStr = rs.getString("tanggal_kembali")
+                val statusStr = rs.getString("status_sewa").orEmpty()
+                val statusEnum = runCatching { StatusSewa.valueOf(statusStr) }.getOrDefault(
+                    if (tglKembaliStr.isNullOrBlank()) StatusSewa.AKTIF_DISEWA else StatusSewa.SELESAI_DIKEMBALIKAN
+                )
                 list.add(
                     TransaksiSewa(
                         id = rs.getString("id"),
@@ -238,7 +275,9 @@ class MySqlCampInRepository(
                         kodePembayaran = rs.getString("kode_pembayaran"),
                         tanggalPinjam = LocalDate.parse(rs.getString("tanggal_pinjam")),
                         tanggalKembali = if (tglKembaliStr.isNullOrBlank()) null else LocalDate.parse(tglKembaliStr),
-                        dendaTerlambat = rs.getInt("denda")
+                        dendaTerlambat = rs.getInt("denda"),
+                        depositDikembalikan = rs.getInt("deposit_dikembalikan"),
+                        status = statusEnum
                     )
                 )
             }
