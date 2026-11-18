@@ -10,10 +10,10 @@ class CampInServiceTest {
     @BeforeTest
     fun setUp() {
         service = CampInService()
-        service.registrasiPengguna(AdminPlatform("ADM-01", "Rafi Admin", "rafi@campin.id"))
-        service.registrasiPengguna(Penyedia("MTR-01", "Budi Outdoor", "budi@outdoor.id", "Eigerindo Camp", terverifikasiAwal = true))
-        service.registrasiPengguna(Penyedia("MTR-02", "Toko Baru", "baru@outdoor.id", "Unverified Camp", terverifikasiAwal = false))
-        service.registrasiPengguna(Penyewa("USR-01", "Andi Pendaki", "andi@gmail.com", "08123456789"))
+        service.registrasiPengguna(AdminPlatform("ADM-01", "Rafi Admin", "rafi@campin.id"), "admin123")
+        service.registrasiPengguna(Penyedia("MTR-01", "Budi Outdoor", "budi@outdoor.id", "Eigerindo Camp", terverifikasiAwal = true), "mitra123")
+        service.registrasiPengguna(Penyedia("MTR-02", "Toko Baru", "baru@outdoor.id", "Unverified Camp", terverifikasiAwal = false), "mitra123")
+        service.registrasiPengguna(Penyewa("USR-01", "Andi Pendaki", "andi@gmail.com", "08123456789"), "user123")
 
         service.tambahAlat(Tenda("ALT-01", "Tenda Eiger Guardian 4P", 65000, "MTR-01", 4, "Double Layer"))
         service.tambahAlat(TasCarrier("ALT-02", "Carrier Osprey Atmos 65L", 55000, "MTR-01", 65, true))
@@ -43,10 +43,11 @@ class CampInServiceTest {
     }
 
     @Test
-    fun `4 - menyewa alat mengubah status tersedia menjadi false dan mencatat transaksi`() {
+    fun `4 - menyewa alat mengubah status tersedia menjadi false dan menghitung jatuh tempo`() {
         val trx = service.sewaAlat("ALT-01", "USR-01", 2)
         assertEquals(130000, trx.totalBiayaSewa)
         assertEquals(100000, trx.totalDeposit)
+        assertEquals(trx.tanggalPinjam.plusDays(2), trx.tanggalJatuhTempo)
         assertFalse(service.cariAlat("Guardian").first().tersedia)
         assertEquals(1, service.transaksiAktif().size)
     }
@@ -60,27 +61,47 @@ class CampInServiceTest {
     }
 
     @Test
-    fun `6 - mengembalikan alat mencairkan 90 persen saldo ke penyedia dan 10 persen komisi admin`() {
-        val trx = service.sewaAlat("ALT-01", "USR-01", 2)
-        service.kembalikanAlat(trx.id, hariTerlambat = 1)
+    fun `6 - mengembalikan alat mencairkan 90 persen ke mitra, 10 persen ke admin, dan refund sisa deposit ke penyewa`() {
+        val trx = service.sewaAlat("ALT-01", "USR-01", 2) // Sewa: 130.000, Deposit: 100.000
+        service.kembalikanAlat(trx.id, hariTerlambat = 1) // Denda: 25.000
 
         val penyedia = service.cariPengguna("MTR-01") as Penyedia
-        assertEquals(13000, service.totalKomisiPlatform)
-        assertEquals(142000, penyedia.saldoDompet)
+        val penyewa = service.cariPengguna("USR-01") as Penyewa
+
+        assertEquals(13000, service.totalKomisiPlatform)      // 10% dari 130.000
+        assertEquals(142000, penyedia.saldoDompet)            // 117.000 (90%) + 25.000 (denda)
+        assertEquals(75000, penyewa.saldoRefundDeposit)       // Deposit 100.000 - denda 25.000
         assertTrue(service.cariAlat("Guardian").first().tersedia)
     }
 
     @Test
     fun `7 - registrasi pengguna dengan email tanpa karakter at harus ditolak`() {
         assertFailsWith<InputTidakValidException> {
-            service.registrasiPengguna(Penyewa("USR-99", "Citra", "citra-tanpa-at.com", "08111"))
+            service.registrasiPengguna(Penyewa("USR-99", "Citra", "citra-tanpa-at.com", "08111"), "pass123")
         }
     }
 
     @Test
     fun `8 - duplikasi ID alat atau pengguna harus melempar DuplikasiIdException`() {
         assertFailsWith<DuplikasiIdException> {
-            service.registrasiPengguna(Penyewa("USR-01", "Duplikat", "dup@mail.com", "0812"))
+            service.registrasiPengguna(Penyewa("USR-01", "Duplikat", "dup@mail.com", "0812"), "pass123")
+        }
+    }
+
+    @Test
+    fun `9 - login berhasil dengan ID atau email yang benar dan gagal jika password salah`() {
+        val user = service.login("USR-01", "user123")
+        assertEquals("Andi Pendaki", user.nama)
+
+        assertFailsWith<AutentikasiGagalException> {
+            service.login("USR-01", "password-ngawur")
+        }
+    }
+
+    @Test
+    fun `10 - penyewa yang mencoba memverifikasi mitra harus ditolak dengan AksesDitolakException`() {
+        assertFailsWith<AksesDitolakException> {
+            service.verifikasiPenyedia("USR-01", "MTR-02")
         }
     }
 }
