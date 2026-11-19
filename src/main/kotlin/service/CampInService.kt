@@ -130,9 +130,12 @@ class CampInService(
     fun kategoriUnik(): Set<String> = alatMap.values.map { it.kategori() }.toSet()
 
     @Synchronized
-    fun sewaAlat(alatId: String, penyewaId: String, durasiHari: Int): TransaksiSewa {
+    fun sewaAlat(alatId: String, penyewaId: String, durasiHari: Int, jumlahUnit: Int = 1): TransaksiSewa {
         if (durasiHari <= 0 || durasiHari > 30) {
             throw InputTidakValidException("Durasi sewa harus antara 1 hingga 30 hari.")
+        }
+        if (jumlahUnit <= 0) {
+            throw InputTidakValidException("Jumlah unit sewa minimal 1.")
         }
 
         val alat = alatMap[alatId] ?: throw DataTidakDitemukanException("Alat Camping", alatId)
@@ -144,19 +147,19 @@ class CampInService(
         if (alat.idPenyedia == penyewaId) {
             throw AksesDitolakException("Anda tidak dapat menyewa alat milik sendiri.")
         }
-        if (!alat.tersedia) {
-            throw AlatTidakTersediaException(alat.nama)
+        if (alat.stok < jumlahUnit) {
+            throw AlatTidakTersediaException("${alat.nama} (stok tersedia: ${alat.stok}, diminta: $jumlahUnit)")
         }
-        val totalSewa = alat.hargaSewaPerHari * durasiHari
-        val deposit = alat.hitungDeposit()
+        val totalSewa = (alat.hargaSewaPerHari * durasiHari) * jumlahUnit
+        val deposit = alat.hitungDeposit() * jumlahUnit
 
         val idTransaksi = "TRX-" + (transaksiList.size + 101)
 
         val kodeQris = paymentGateway?.buatTagihanQris(idTransaksi, totalSewa + deposit)
             ?: "QRIS-CAMPIN-$idTransaksi"
 
-        alat.tandaiDisewa()
-        repository?.updateStatusAlat(alat.id, false)
+        alat.kurangiStok(jumlahUnit)
+        repository?.updateStokAlat(alat.id, alat.stok)
         val trx = TransaksiSewa(
             id = idTransaksi,
             alatId = alat.id,
@@ -165,6 +168,7 @@ class CampInService(
             totalBiayaSewa = totalSewa,
             totalDeposit = deposit,
             kodePembayaran = kodeQris,
+            jumlahUnit = jumlahUnit,
             status = StatusSewa.AKTIF_DISEWA
         )
         transaksiList.add(trx)
@@ -181,7 +185,7 @@ class CampInService(
             ?: throw DataTidakDitemukanException("Transaksi Sewa Aktif", transaksiId)
         val alat = alatMap[trx.alatId]
             ?: throw DataTidakDitemukanException("Alat Camping", trx.alatId)
-        val denda = hariTerlambat * 25000
+        val denda = hariTerlambat * 25000 * trx.jumlahUnit
         // Deposit dipotong denda terlebih dahulu; sisa deposit dikembalikan ke Penyewa
         val potonganDeposit = minOf(trx.totalDeposit, denda)
         val refundKePenyewa = (trx.totalDeposit - potonganDeposit).coerceAtLeast(0)
@@ -190,8 +194,8 @@ class CampInService(
         trx.depositDikembalikan = refundKePenyewa
         trx.tanggalKembali = LocalDate.now()
         trx.status = StatusSewa.SELESAI_DIKEMBALIKAN
-        alat.tandaiDikembalikan()
-        repository?.updateStatusAlat(alat.id, true)
+        alat.tambahStok(trx.jumlahUnit)
+        repository?.updateStokAlat(alat.id, alat.stok)
 
         repository?.updatePengembalianTransaksi(
             trx.id,
@@ -240,11 +244,11 @@ class CampInService(
             }
             appendLine("# ALAT_CAMPING")
             alatMap.values.forEach { a ->
-                appendLine("ALAT|${a.kategori()}|${a.id}|${a.nama}|${a.hargaSewaPerHari}|${a.idPenyedia}|${a.tersedia}")
+                appendLine("ALAT|${a.kategori()}|${a.id}|${a.nama}|${a.hargaSewaPerHari}|${a.idPenyedia}|${a.tersedia}|${a.stok}")
             }
             appendLine("# TRANSAKSI_SEWA")
             transaksiList.forEach { t ->
-                appendLine("TRX|${t.id}|${t.alatId}|${t.penyewaId}|${t.durasiHari}|${t.totalBiayaSewa}|${t.totalDeposit}|${t.depositDikembalikan}|${t.tanggalPinjam}|${t.tanggalKembali ?: "-"}")
+                appendLine("TRX|${t.id}|${t.alatId}|${t.penyewaId}|${t.durasiHari}|${t.totalBiayaSewa}|${t.totalDeposit}|${t.depositDikembalikan}|${t.tanggalPinjam}|${t.tanggalKembali ?: "-"}|${t.jumlahUnit}")
             }
         })
     }
