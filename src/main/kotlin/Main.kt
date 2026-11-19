@@ -12,9 +12,15 @@ fun main() {
 
     seedInitialDataIfEmpty(campInService)
 
-    MobileWebUiServer.start(campInService, repository.modeDatabaseAktif, port = 8080)
+    val port = MobileWebUiServer.start(campInService, repository.modeDatabaseAktif, port = 8088)
+    val webUrl = "http://localhost:$port"
+
+    Runtime.getRuntime().addShutdownHook(Thread {
+        MobileWebUiServer.stop()
+    })
+
     try {
-        CliApp(campInService, repository.modeDatabaseAktif).jalankan()
+        CliApp(campInService, repository.modeDatabaseAktif, webUrl).jalankan()
     } finally {
         MobileWebUiServer.stop()
     }

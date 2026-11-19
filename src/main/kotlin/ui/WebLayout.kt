@@ -395,17 +395,17 @@ $themeCss
         val first = when (user) {
             is Penyewa ->
                 navItem("/katalog", "home", "Beranda", activeTab == "katalog") +
-                        navItem("/sewa-saya", "clipboard", "Sewaan", activeTab == "sewa")
+                navItem("/sewa-saya", "clipboard", "Sewaan", activeTab == "sewa")
             is Penyedia ->
                 navItem("/mitra", "home", "Toko", activeTab == "mitra") +
-                        navItem("/katalog", "search", "Katalog", activeTab == "katalog")
+                navItem("/katalog", "search", "Katalog", activeTab == "katalog")
             is AdminPlatform ->
                 navItem("/admin", "shield", "Admin", activeTab == "admin") +
-                        navItem("/katalog", "search", "Katalog", activeTab == "katalog")
+                navItem("/katalog", "search", "Katalog", activeTab == "katalog")
         }
         val items = first +
-                navItem("#notifikasi", "bell", "Notifikasi", false) +
-                navItem("#akun", "user", "Akun", false)
+            navItem("#notifikasi", "bell", "Notifikasi", false) +
+            navItem("#akun", "user", "Akun", false)
         return """<nav class="nav"><div class="nav-in">$items</div></nav>"""
     }
 
