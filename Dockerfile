@@ -10,5 +10,5 @@ RUN gradle installDist --no-daemon
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 COPY --from=builder /app/build/install/campin /app
-EXPOSE 8080
+EXPOSE 8088
 ENTRYPOINT ["/app/bin/campin"]
