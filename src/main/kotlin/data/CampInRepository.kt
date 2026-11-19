@@ -12,6 +12,7 @@ interface CampInRepository {
     fun ambilSemuaPengguna(): List<Pengguna>
     fun simpanAlat(alat: AlatCamping)
     fun updateStatusAlat(id: String, tersedia: Boolean)
+    fun updateStokAlat(id: String, stok: Int)
     fun ambilSemuaAlat(): List<AlatCamping>
     fun simpanTransaksi(trx: TransaksiSewa)
     fun updatePengembalianTransaksi(
