@@ -5,18 +5,21 @@ import exception.CampInException
 import model.*
 import service.CampInService
 
-class CliApp(private val service: CampInService, private val dbStatus: String) {
-
+class CliApp(
+    private val service: CampInService,
+    private val dbEngine: String,
+    private val webUrl: String = "http://localhost:8088"
+) {
     fun jalankan() {
-        println("================================================================")
-        println("   ⛺ SELAMAT DATANG DI CAMPIN - P2P CAMPING RENTAL PLATFORM    ")
-        println("   🗄️ Database Engine : $dbStatus")
-        println("   📱 Mobile App UI   : http://localhost:8080 (Buka di HP/Web)  ")
-        println("================================================================")
+        println("=============================================================")
+        println("       CAMPIN - MARKETPLACE SEWA ALAT CAMPING INDONESIA     ")
+        println("       Engine Database: $dbEngine                           ")
+        println("       Mobile Web UI  : $webUrl                             ")
+        println("=============================================================")
 
         while (true) {
             tampilkanMenu()
-            when (bacaInput("Pilih menu [0-10]: ")) {
+            when (bacaInput("Pilih Menu [0-10]: ")) {
                 "1" -> lihatSemuaAlat()
                 "2" -> cariAlatMenu()
                 "3" -> tambahAlatMenu()
@@ -44,12 +47,12 @@ class CliApp(private val service: CampInService, private val dbStatus: String) {
             """
             --------------------- MENU UTAMA CAMPIN ---------------------
             [KATALOG & PENCARIAN]
-              1. Lihat Semua Katalog Alat Camping
+              1. Lihat Semua Katalog Alat Camping (Info Stok)
               2. Cari Alat Camping (Keyword / Kategori)
             [ROLE PENYEDIA / MITRA]
               3. Tambah Alat Sewaan Baru (Tenda / Carrier / Sleeping Gear)
             [ROLE PENYEWA / CAMPER]
-              6. Sewa Alat Camping (Midtrans QRIS Checkout)
+              6. Sewa Alat Camping (Midtrans QRIS Checkout Multi-Unit)
               7. Kembalikan Alat & Hitung Bagi Hasil Escrow
               9. Cek Cuaca Gunung & Rekomendasi Alat (Live Open-Meteo API)
             [ROLE ADMIN & MANAJEMEN AKUN]
@@ -92,9 +95,9 @@ class CliApp(private val service: CampInService, private val dbStatus: String) {
             println("Belum ada alat camping yang terdaftar.")
             return
         }
-        println("\n--- DAFTAR KATALOG ALAT CAMPING (${list.size} Unit) ---")
+        println("\n--- DAFTAR KATALOG ALAT CAMPING (${list.size} Jenis) ---")
         list.forEach {
-            val status = if (it.tersedia) "✓ TERSEDIA" else "✗ DISEWA"
+            val status = if (it.tersedia) "✓ TERSEDIA (Stok: ${it.stok} unit)" else "✗ HABIS / SEDANG DISEWA"
             println("[$status] ID: ${it.id} (Mitra: ${it.idPenyedia}) -> ${it.deskripsi()}")
         }
     }
@@ -106,7 +109,7 @@ class CliApp(private val service: CampInService, private val dbStatus: String) {
             println("Tidak ditemukan alat untuk kata kunci '$kw'.")
         } else {
             hasil.forEachIndexed { idx, alat ->
-                println("${idx + 1}. [${alat.id}] ${alat.deskripsi()}")
+                println("${idx + 1}. [${alat.id}] [Stok: ${alat.stok}] ${alat.deskripsi()}")
             }
         }
     }
@@ -122,16 +125,17 @@ class CliApp(private val service: CampInService, private val dbStatus: String) {
         val idPenyedia = bacaInput("ID Penyedia (misal MTR-01) : ")
         val nama = bacaInput("Nama Alat                  : ")
         val harga = bacaAngka("Harga Sewa per Hari (Rp)   : ")
+        val stok = bacaAngka("Jumlah Stok Unit Awal      : ").coerceAtLeast(1)
 
         val alat: AlatCamping = when (jenis) {
-            "1" -> Tenda(id, nama, harga, idPenyedia, bacaAngka("Kapasitas (Orang)          : "), bacaInput("Tipe Layer (Single/Double) : "))
-            "2" -> TasCarrier(id, nama, harga, idPenyedia, bacaAngka("Kapasitas Volume (Liter)   : "), bacaInput("Ada Raincover? (y/n)       : ").equals("y", true))
-            else -> PerlengkapanTidur(id, nama, harga, idPenyedia, bacaAngka("Batas Suhu Dingin (°C)     : "), bacaInput("Bahan Isian (Polar/Dacron) : "))
+            "1" -> Tenda(id, nama, harga, idPenyedia, bacaAngka("Kapasitas (Orang)          : "), bacaInput("Tipe Layer (Single/Double) : "), stok)
+            "2" -> TasCarrier(id, nama, harga, idPenyedia, bacaAngka("Kapasitas Volume (Liter)   : "), bacaInput("Ada Raincover? (y/n)       : ").equals("y", true), stok)
+            else -> PerlengkapanTidur(id, nama, harga, idPenyedia, bacaAngka("Batas Suhu Dingin (°C)     : "), bacaInput("Bahan Isian (Polar/Dacron) : "), stok)
         }
 
         jalankanAman {
             service.tambahAlat(alat)
-            println("✓ Alat berhasil ditambahkan ke katalog: ${alat.deskripsi()}")
+            println("✓ Alat berhasil ditambahkan ke katalog: ${alat.deskripsi()} (Stok: ${alat.stok} unit)")
         }
     }
 
@@ -145,6 +149,7 @@ class CliApp(private val service: CampInService, private val dbStatus: String) {
         val id = bacaInput("ID Pengguna   : ")
         val nama = bacaInput("Nama Lengkap  : ")
         val email = bacaInput("Alamat Email  : ")
+        val password = bacaInput("Password      : ").ifBlank { "123456" }
 
         val user: Pengguna = when (role) {
             "1" -> Penyewa(id, nama, email, bacaInput("No. Telepon   : "))
@@ -153,7 +158,7 @@ class CliApp(private val service: CampInService, private val dbStatus: String) {
         }
 
         jalankanAman {
-            service.registrasiPengguna(user)
+            service.registrasiPengguna(user, password)
             println("✓ Pengguna berhasil didaftarkan: ${user.infoSingkat()}")
         }
     }
@@ -171,13 +176,15 @@ class CliApp(private val service: CampInService, private val dbStatus: String) {
         val alatId = bacaInput("ID Alat yang ingin disewa (contoh ALT-01) : ")
         val penyewaId = bacaInput("ID Penyewa Anda (contoh USR-01)           : ")
         val durasi = bacaAngka("Durasi Sewa (hari)                        : ")
+        val jumlahUnit = bacaAngka("Jumlah Unit yang Disewa (min 1)           : ").coerceAtLeast(1)
 
         jalankanAman {
-            val trx = service.sewaAlat(alatId, penyewaId, durasi)
+            val trx = service.sewaAlat(alatId, penyewaId, durasi, jumlahUnit)
             println(
                 """
                 ✓ PEMESANAN & TAGIHAN QRIS BERHASIL DIBUAT!
                   • ID Transaksi    : ${trx.id}
+                  • Jumlah Unit     : ${trx.jumlahUnit} unit
                   • Biaya Sewa      : Rp${trx.totalBiayaSewa} (${trx.durasiHari} hari)
                   • Uang Deposit    : Rp${trx.totalDeposit}
                   • Total Tagihan   : Rp${trx.grandTotalBayar}
@@ -192,7 +199,7 @@ class CliApp(private val service: CampInService, private val dbStatus: String) {
         val telat = bacaAngka("Jumlah Hari Keterlambatan (0 jika tepat waktu): ")
         jalankanAman {
             val trx = service.kembalikanAlat(trxId, telat)
-            println("✓ Alat '${trx.alatId}' telah dikembalikan! Denda keterlambatan: Rp${trx.dendaTerlambat}.")
+            println("✓ Alat '${trx.alatId}' (${trx.jumlahUnit} unit) telah dikembalikan! Denda keterlambatan: Rp${trx.dendaTerlambat}, Refund Deposit: Rp${trx.depositDikembalikan}.")
         }
     }
 
@@ -203,7 +210,7 @@ class CliApp(private val service: CampInService, private val dbStatus: String) {
             println("Tidak ada transaksi sewa yang sedang berjalan.")
         } else {
             aktif.forEach {
-                println("• [${it.id}] Alat=${it.alatId} | Penyewa=${it.penyewaId} | Durasi=${it.durasiHari} hari | Total=Rp${it.grandTotalBayar}")
+                println("• [${it.id}] Alat=${it.alatId} (${it.jumlahUnit} unit) | Penyewa=${it.penyewaId} | Durasi=${it.durasiHari} hari | Total=Rp${it.grandTotalBayar}")
             }
         }
         println("\n--- LAPORAN ESCROW & KOMISI PLATFORM ---")
@@ -228,4 +235,3 @@ class CliApp(private val service: CampInService, private val dbStatus: String) {
         service.semuaPengguna().forEach { println("• ${it.infoSingkat()}") }
     }
 }
-
