@@ -13,7 +13,176 @@
 | Edra Christian D | 225443031 | QA + Data & API Developer |
 | Dhiya Nasywa Nafi’ah Salsabila Marjaya | 225443030 | DevOps Engineer |
 
-## Fitur Utama (Versi 2)
+## UML Class Diagram Sistem CampIn
+```mermaid
+classDiagram
+    class AlatCamping {
+        <<abstract>>
+        +id: String
+        +nama: String
+        +hargaSewaPerHari: Int
+        +idPenyedia: String
+        +tersedia: Boolean
+        +kategori()* String
+        +deskripsi()* String
+        +hitungDeposit()* Int
+        +tandaiDisewa()
+        +tandaiDikembalikan()
+    }
+
+    class Tenda {
+        +kapasitasOrang: Int
+        +tipeLayer: String
+        +kategori() String
+        +deskripsi() String
+        +hitungDeposit() Int
+    }
+
+    class TasCarrier {
+        +kapasitasLiter: Int
+        +adaRaincover: Boolean
+        +kategori() String
+        +deskripsi() String
+        +hitungDeposit() Int
+    }
+
+    class PerlengkapanTidur {
+        +suhuMinimalDerajat: Int
+        +bahanIsian: String
+        +kategori() String
+        +deskripsi() String
+        +hitungDeposit() Int
+    }
+
+    AlatCamping <|-- Tenda
+    AlatCamping <|-- TasCarrier
+    AlatCamping <|-- PerlengkapanTidur
+
+    class Pengguna {
+        <<sealed>>
+        +id: String
+        +nama: String
+        +email: String
+        +passwordHash: String
+        +peran()* String
+        +infoSingkat()* String
+    }
+
+    class Penyewa {
+        +noTelepon: String
+        +saldoRefundDeposit: Int
+        +terimaRefundDeposit(nominal: Int)
+        +peran() String
+        +infoSingkat() String
+    }
+
+    class Penyedia {
+        +namaToko: String
+        +terverifikasi: Boolean
+        +saldoDompet: Int
+        +verifikasiAkun()
+        +tambahSaldo(nominal: Int)
+        +peran() String
+        +infoSingkat() String
+    }
+
+    class AdminPlatform {
+        +levelAkses: String
+        +peran() String
+        +infoSingkat() String
+    }
+
+    Pengguna <|-- Penyewa
+    Pengguna <|-- Penyedia
+    Pengguna <|-- AdminPlatform
+
+    class StatusSewa {
+        <<enumeration>>
+        MENUNGGU_PEMBAYARAN
+        AKTIF_DISEWA
+        SELESAI_DIKEMBALIKAN
+    }
+
+    class TransaksiSewa {
+        <<data>>
+        +id: String
+        +alatId: String
+        +penyewaId: String
+        +durasiHari: Int
+        +totalBiayaSewa: Int
+        +totalDeposit: Int
+        +kodePembayaran: String
+        +tanggalPinjam: LocalDate
+        +tanggalKembali: LocalDate?
+        +dendaTerlambat: Int
+        +depositDikembalikan: Int
+        +status: StatusSewa
+        +tanggalJatuhTempo: LocalDate
+        +sedangDisewa: Boolean
+        +grandTotalBayar: Int
+    }
+
+    TransaksiSewa --> StatusSewa
+
+    class PencarianAlat {
+        <<interface>>
+        +cariAlat(keyword: String) List~AlatCamping~
+    }
+
+    class CampInRepository {
+        <<interface>>
+        +initSchema()
+        +simpanPengguna(pengguna: Pengguna)
+        +updatePenyedia(id: String, terverifikasi: Boolean, saldo: Int)
+        +updateSaldoRefundPenyewa(id: String, saldoRefund: Int)
+        +ambilSemuaPengguna() List~Pengguna~
+        +simpanAlat(alat: AlatCamping)
+        +updateStatusAlat(id: String, tersedia: Boolean)
+        +ambilSemuaAlat() List~AlatCamping~
+        +simpanTransaksi(trx: TransaksiSewa)
+        +updatePengembalianTransaksi(id: String, tanggalKembali: String, denda: Int, depositDikembalikan: Int, status: String)
+        +ambilSemuaTransaksi() List~TransaksiSewa~
+    }
+
+    class PaymentGateway {
+        <<interface>>
+        +buatTagihanQris(orderId: String, nominal: Int) String
+    }
+
+    class PasswordHasher {
+        <<object>>
+        +hash(rawPassword: String) String
+        +verify(rawPassword: String, hashed: String) Boolean
+    }
+
+    class CampInService {
+        -alatMap: ConcurrentHashMap~String, AlatCamping~
+        -penggunaMap: ConcurrentHashMap~String, Pengguna~
+        -transaksiList: CopyOnWriteArrayList~TransaksiSewa~
+        +totalKomisiPlatform: Int
+        +registrasiPengguna(pengguna: Pengguna, rawPassword: String)
+        +login(idAtauEmail: String, rawPassword: String) Pengguna
+        +verifikasiPenyedia(adminId: String, penyediaId: String)
+        +tambahAlat(alat: AlatCamping)
+        +sewaAlat(alatId: String, penyewaId: String, durasiHari: Int) TransaksiSewa
+        +kembalikanAlat(transaksiId: String, hariTerlambat: Int) TransaksiSewa
+        +cariAlat(keyword: String) List~AlatCamping~
+        +simpanKeCsv(path: String)
+    }
+
+    PencarianAlat <|.. CampInService
+    CampInRepository <|.. MySqlCampInRepository
+    PaymentGateway <|.. MidtransPaymentApi
+    CampInService "1" *-- "0..*" AlatCamping
+    CampInService "1" *-- "0..*" Pengguna
+    CampInService "1" *-- "0..*" TransaksiSewa
+    CampInService --> CampInRepository
+    CampInService --> PaymentGateway
+    CampInService --> PasswordHasher
+
+```
+
+## Fitur Utama
 - [x] **Autentikasi Multi-Role & Manajemen Sesi**: Hashing password menggunakan **SHA-256** (`PasswordHasher`) dan pemisahan halaman berbasis *HTTP Cookie Session* (`/katalog`, `/sewa-saya`, `/mitra`, `/admin`) disertai tombol *1-Click Demo Login*.
 - [x] **Verifikasi KYC Mitra oleh Admin**: Mitra baru wajib diverifikasi oleh Admin Platform sebelum dapat menambahkan katalog peralatan.
 - [x] **Katalog Polimorfik & Perhitungan Deposit Otomatis**: Mendukung subclass `Tenda`, `TasCarrier`, dan `PerlengkapanTidur` dengan rumus deposit dan deskripsi spesifik tiap jenis alat.
